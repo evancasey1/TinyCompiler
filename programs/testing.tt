@@ -1,0 +1,3 @@
+PRINT "Testing!"
+LET foo = index + 1
+GOTO start
