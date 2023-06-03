@@ -4,6 +4,7 @@ import "fmt"
 
 type parser struct {
 	lexer     *lexer
+	emitter   *emitter
 	curToken  token
 	peekToken token
 
@@ -49,7 +50,8 @@ program
     ::= {statement}
 */
 func (p *parser) program() {
-	fmt.Println("PROGRAM")
+	p.emitter.headerLine("#include <stdio.h>") // make printf and scanf available
+	p.emitter.headerLine("int main(void){")
 
 	for p.checkToken(tokNEWLINE) {
 		p.nextToken()
@@ -64,6 +66,9 @@ func (p *parser) program() {
 			p.abort(fmt.Sprintf("Attempting to GOTO undeclared label: %s", label))
 		}
 	}
+
+	p.emitter.emitLine("return 0;")
+	p.emitter.emitLine("}")
 }
 
 /*
@@ -79,64 +84,81 @@ statement
 */
 func (p *parser) statement() {
 	if p.checkToken(tokPRINT) {
-		fmt.Println("STATEMENT-PRINT")
 		p.nextToken()
 
 		if p.checkToken(tokSTRING) {
+			p.emitter.emitLine(fmt.Sprintf(`printf("%s\n");`, p.curToken.text))
 			p.nextToken()
 		} else {
+			p.emitter.emit(`printf("%.2f\n", (float)(`)
 			p.expression()
+			p.emitter.emitLine("));")
 		}
 	} else if p.checkToken(tokIF) {
-		fmt.Println("STATEMENT-IF")
 		p.nextToken()
+		p.emitter.emit("if(")
 		p.comparison()
 		p.match(tokTHEN)
 		p.nl()
+		p.emitter.emitLine("){")
 
 		// zero or more statements are allowed in the body
 		for !p.checkToken(tokENDIF) {
 			p.statement()
 		}
 		p.match(tokENDIF)
+		p.emitter.emitLine("}")
 	} else if p.checkToken(tokWHILE) {
-		fmt.Println("STATEMENT-WHILE")
 		p.nextToken()
+		p.emitter.emit("while(")
 		p.comparison()
 		p.match(tokREPEAT)
 		p.nl()
+		p.emitter.emitLine("){")
 
 		// zero or more statements are allowed in the body
 		for !p.checkToken(tokENDWHILE) {
 			p.statement()
 		}
 		p.match(tokENDWHILE)
+		p.emitter.emitLine("}")
 	} else if p.checkToken(tokLABEL) {
-		fmt.Println("STATEMENT-LABEL")
 		p.nextToken()
 
 		if _, found := p.labelsDeclared[p.curToken.text]; found {
 			p.abort(fmt.Sprintf("Label already declared: %s", p.curToken.text))
 		}
 		p.labelsDeclared[p.curToken.text] = true
-
+		p.emitter.emitLine(p.curToken.text + ":")
 		p.match(tokIDENT)
 	} else if p.checkToken(tokGOTO) {
-		fmt.Println("STATEMENT-GOTO")
 		p.nextToken()
 		p.labelsGotoed[p.curToken.text] = true
+		p.emitter.emitLine(fmt.Sprintf("goto %s;", p.curToken.text))
 		p.match(tokIDENT)
 	} else if p.checkToken(tokLET) {
-		fmt.Println("STATEMENT-LET")
 		p.nextToken()
-		p.symbols[p.curToken.text] = true
+
+		if _, found := p.symbols[p.curToken.text]; !found {
+			p.symbols[p.curToken.text] = true
+			p.emitter.headerLine(fmt.Sprintf("float %s;", p.curToken.text))
+		}
+		p.emitter.emit(p.curToken.text + " = ")
 		p.match(tokIDENT)
 		p.match(tokEQ)
 		p.expression()
+		p.emitter.emitLine(";")
 	} else if p.checkToken(tokINPUT) {
-		fmt.Println("STATEMENT-INPUT")
 		p.nextToken()
-		p.symbols[p.curToken.text] = true
+		if _, found := p.symbols[p.curToken.text]; !found {
+			p.symbols[p.curToken.text] = true
+			p.emitter.headerLine(fmt.Sprintf("float %s;", p.curToken.text))
+		}
+		p.emitter.emitLine(fmt.Sprintf(`if(0 == scanf("%%f", &%s)) {`, p.curToken.text))
+		p.emitter.emitLine(p.curToken.text + " = 0;")
+		p.emitter.emit(`scanf("%`)
+		p.emitter.emitLine(`*s");`)
+		p.emitter.emitLine("}")
 		p.match(tokIDENT)
 	} else {
 		p.abort(fmt.Sprintf("Invalid statement at %s (%d)", p.curToken.text, p.curToken.kind))
@@ -150,9 +172,9 @@ comparison
 	::= expression (("==" | "!=" | ">" | ">=" | "<" | "<=") expression)+
 */
 func (p *parser) comparison() {
-	fmt.Println("COMPARISON")
 	p.expression()
 	if p.isComparisonOperator() {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 		p.expression()
 	} else {
@@ -160,6 +182,7 @@ func (p *parser) comparison() {
 	}
 
 	for p.isComparisonOperator() {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 		p.expression()
 	}
@@ -180,9 +203,9 @@ expression
 	::= term {( "-" | "+" ) term}
 */
 func (p *parser) expression() {
-	fmt.Println("EXPRESSION")
 	p.term()
 	for p.checkToken(tokPLUS) || p.checkToken(tokMINUS) {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 		p.term()
 	}
@@ -194,9 +217,9 @@ term
 	::= unary {( "/" | "*" ) unary}
 */
 func (p *parser) term() {
-	fmt.Println("TERM")
 	p.unary()
 	for p.checkToken(tokSLASH) || p.checkToken(tokASTERISK) {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 		p.unary()
 	}
@@ -208,8 +231,8 @@ unary
 	::= ["+" | "-"] primary
 */
 func (p *parser) unary() {
-	fmt.Println("UNARY")
 	if p.checkToken(tokPLUS) || p.checkToken(tokMINUS) {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 	}
 	p.primary()
@@ -221,14 +244,15 @@ primary
 	::= number | ident
 */
 func (p *parser) primary() {
-	fmt.Printf("PRIMARY (%s)\n", p.curToken.text)
-
 	if p.checkToken(tokNUMBER) {
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 	} else if p.checkToken(tokIDENT) {
 		if _, found := p.symbols[p.curToken.text]; !found {
 			p.abort(fmt.Sprintf("Referencing variable before assignment: %s", p.curToken.text))
 		}
+
+		p.emitter.emit(p.curToken.text)
 		p.nextToken()
 	} else {
 		p.abort(fmt.Sprintf("Unexpected token at %s (%d)", p.curToken.text, p.curToken.kind))
@@ -241,7 +265,6 @@ nl
 	::= '\n'+
 */
 func (p *parser) nl() {
-	fmt.Println("NEWLINE")
 	p.match(tokNEWLINE)
 
 	// allow for extra newline tokens
@@ -250,9 +273,10 @@ func (p *parser) nl() {
 	}
 }
 
-func NewParser(lexer *lexer) *parser {
+func NewParser(lexer *lexer, emitter *emitter) *parser {
 	newParser := parser{
 		lexer:          lexer,
+		emitter:        emitter,
 		symbols:        make(map[string]bool),
 		labelsDeclared: make(map[string]bool),
 		labelsGotoed:   make(map[string]bool),

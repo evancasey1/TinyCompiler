@@ -21,7 +21,9 @@ func main() {
 	}
 
 	lexer := compiler.NewLexer(string(source))
-	parser := compiler.NewParser(lexer)
+	emitter := compiler.NewEmitter("out.c")
+	parser := compiler.NewParser(lexer, emitter)
 	parser.Parse()
-	fmt.Println("\nParsing complete!")
+	emitter.WriteFile()
+	fmt.Println("Compiling complete!")
 }

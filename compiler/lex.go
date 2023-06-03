@@ -102,7 +102,7 @@ func (l *lexer) getToken() token {
 			}
 			l.nextChar()
 		}
-		tokText := l.source[startPos : l.curPos+1]
+		tokText := l.source[startPos:l.curPos]
 		currToken = token{text: tokText, kind: tokSTRING}
 	case unicode.IsDigit(rune(curChar)):
 		// Leading character is a digit, so this must be a number.
