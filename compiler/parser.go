@@ -7,9 +7,9 @@ type parser struct {
 	curToken  token
 	peekToken token
 
-	symbols        []string
-	labelsDeclared []string
-	labelsGotoed   []string
+	symbols        map[string]bool
+	labelsDeclared map[string]bool
+	labelsGotoed   map[string]bool
 }
 
 // BEGIN CONTROL FUNCTIONS
@@ -59,8 +59,8 @@ func (p *parser) program() {
 		p.statement()
 	}
 
-	for _, label := range p.labelsGotoed {
-		if !elementInSet(p.labelsDeclared, label) {
+	for label := range p.labelsGotoed {
+		if _, found := p.labelsDeclared[label]; !found {
 			p.abort(fmt.Sprintf("Attempting to GOTO undeclared label: %s", label))
 		}
 	}
@@ -115,28 +115,28 @@ func (p *parser) statement() {
 		fmt.Println("STATEMENT-LABEL")
 		p.nextToken()
 
-		if elementInSet(p.labelsDeclared, p.curToken.text) {
+		if _, found := p.labelsDeclared[p.curToken.text]; found {
 			p.abort(fmt.Sprintf("Label already declared: %s", p.curToken.text))
 		}
-		p.labelsDeclared = setAdd(p.labelsDeclared, p.curToken.text)
+		p.labelsDeclared[p.curToken.text] = true
 
 		p.match(tokIDENT)
 	} else if p.checkToken(tokGOTO) {
 		fmt.Println("STATEMENT-GOTO")
 		p.nextToken()
-		p.labelsGotoed = setAdd(p.labelsGotoed, p.curToken.text)
+		p.labelsGotoed[p.curToken.text] = true
 		p.match(tokIDENT)
 	} else if p.checkToken(tokLET) {
 		fmt.Println("STATEMENT-LET")
 		p.nextToken()
-		p.symbols = setAdd(p.symbols, p.curToken.text)
+		p.symbols[p.curToken.text] = true
 		p.match(tokIDENT)
 		p.match(tokEQ)
 		p.expression()
 	} else if p.checkToken(tokINPUT) {
 		fmt.Println("STATEMENT-INPUT")
 		p.nextToken()
-		p.symbols = setAdd(p.symbols, p.curToken.text)
+		p.symbols[p.curToken.text] = true
 		p.match(tokIDENT)
 	} else {
 		p.abort(fmt.Sprintf("Invalid statement at %s (%d)", p.curToken.text, p.curToken.kind))
@@ -226,7 +226,7 @@ func (p *parser) primary() {
 	if p.checkToken(tokNUMBER) {
 		p.nextToken()
 	} else if p.checkToken(tokIDENT) {
-		if !elementInSet(p.symbols, p.curToken.text) {
+		if _, found := p.symbols[p.curToken.text]; !found {
 			p.abort(fmt.Sprintf("Referencing variable before assignment: %s", p.curToken.text))
 		}
 		p.nextToken()
@@ -252,7 +252,10 @@ func (p *parser) nl() {
 
 func NewParser(lexer *lexer) *parser {
 	newParser := parser{
-		lexer: lexer,
+		lexer:          lexer,
+		symbols:        make(map[string]bool),
+		labelsDeclared: make(map[string]bool),
+		labelsGotoed:   make(map[string]bool),
 	}
 	// initialize current and peek tokens
 	newParser.nextToken()
