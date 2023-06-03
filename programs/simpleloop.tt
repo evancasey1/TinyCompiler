@@ -1,0 +1,4 @@
+LET a = 1
+WHILE a > 0 REPEAT
+    LET a = a - 1
+ENDWHILE

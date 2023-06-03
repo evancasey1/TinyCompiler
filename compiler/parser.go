@@ -6,6 +6,10 @@ type parser struct {
 	lexer     *lexer
 	curToken  token
 	peekToken token
+
+	symbols        []string
+	labelsDeclared []string
+	labelsGotoed   []string
 }
 
 // BEGIN CONTROL FUNCTIONS
@@ -54,6 +58,12 @@ func (p *parser) program() {
 	for !p.checkToken(tokEOF) {
 		p.statement()
 	}
+
+	for _, label := range p.labelsGotoed {
+		if !elementInSet(p.labelsDeclared, label) {
+			p.abort(fmt.Sprintf("Attempting to GOTO undeclared label: %s", label))
+		}
+	}
 }
 
 /*
@@ -100,23 +110,33 @@ func (p *parser) statement() {
 		for !p.checkToken(tokENDWHILE) {
 			p.statement()
 		}
+		p.match(tokENDWHILE)
 	} else if p.checkToken(tokLABEL) {
 		fmt.Println("STATEMENT-LABEL")
 		p.nextToken()
+
+		if elementInSet(p.labelsDeclared, p.curToken.text) {
+			p.abort(fmt.Sprintf("Label already declared: %s", p.curToken.text))
+		}
+		p.labelsDeclared = setAdd(p.labelsDeclared, p.curToken.text)
+
 		p.match(tokIDENT)
 	} else if p.checkToken(tokGOTO) {
 		fmt.Println("STATEMENT-GOTO")
 		p.nextToken()
+		p.labelsGotoed = setAdd(p.labelsGotoed, p.curToken.text)
 		p.match(tokIDENT)
 	} else if p.checkToken(tokLET) {
 		fmt.Println("STATEMENT-LET")
 		p.nextToken()
+		p.symbols = setAdd(p.symbols, p.curToken.text)
 		p.match(tokIDENT)
 		p.match(tokEQ)
 		p.expression()
 	} else if p.checkToken(tokINPUT) {
 		fmt.Println("STATEMENT-INPUT")
 		p.nextToken()
+		p.symbols = setAdd(p.symbols, p.curToken.text)
 		p.match(tokIDENT)
 	} else {
 		p.abort(fmt.Sprintf("Invalid statement at %s (%d)", p.curToken.text, p.curToken.kind))
@@ -206,6 +226,9 @@ func (p *parser) primary() {
 	if p.checkToken(tokNUMBER) {
 		p.nextToken()
 	} else if p.checkToken(tokIDENT) {
+		if !elementInSet(p.symbols, p.curToken.text) {
+			p.abort(fmt.Sprintf("Referencing variable before assignment: %s", p.curToken.text))
+		}
 		p.nextToken()
 	} else {
 		p.abort(fmt.Sprintf("Unexpected token at %s (%d)", p.curToken.text, p.curToken.kind))
