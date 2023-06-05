@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Local files
+.idea
+.DS_Store
+
 # Compiler output
 *.c
 
